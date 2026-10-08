@@ -59,17 +59,7 @@ in the binary.
 
 ## Installation
 
-This software can be installed using [Cargo](https://doc.rust-lang.org/stable/cargo/),
-from the [crates.io](https://crates.io/) registry.
-
-```
-$ cargo install a-puzzle-a-day
-```
-
-This will place the executable `a-puzzle-a-day` into `$HOME/.cargo/bin`
-(by default), which should be added to `$PATH`.
-
-Alternatively, to build from source:
+To build from source:
 
 ```
 cargo build --release
