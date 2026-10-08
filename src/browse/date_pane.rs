@@ -78,14 +78,16 @@ pub fn draw(state: &mut State, frame: &mut Frame) {
 
         if let Some(&index) = state.selected_solutions.get(&date) {
             if let Some(&count) = state.solution_count.get(&date) {
-                let info = Line::from(format!("#{} / {}", index + 1, count))
+                let info = Line::from(format!(" #{} / {} ", index + 1, count))
                     .style(Style::default().add_modifier(Modifier::ITALIC))
                     .right_aligned();
 
+                // Written over the bottom line of the frame, leaving its last two characters (`─╯`) visible,
+                // because the board has no empty area wide enough for the largest counts.
                 let info_rect = state.date_pane.area.intersection(Rect {
-                    x: rect.left() + 17,
-                    y: if date == state.date_pane.top_date { rect.bottom() - 2 } else { rect.top() + 15 },
-                    width: 15,
+                    x: rect.left() + 2,
+                    y: if date == state.date_pane.top_date { rect.bottom() - 1 } else { rect.top() + BIG.height - 1 },
+                    width: BIG.width - 3,
                     height: 1,
                 });
                 

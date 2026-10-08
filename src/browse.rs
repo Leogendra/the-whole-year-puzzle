@@ -212,3 +212,21 @@ pub fn browse(boards: DateMap<Vec<Board>>, date: Date) -> io::Result<()> {
     shutdown()?;
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn size_of(text: &str) -> Size {
+        let lines: Vec<&str> = text.lines().collect();
+        let width = lines.iter().map(|line| line.chars().count()).max().unwrap_or(0);
+        Size { width: width as u16, height: lines.len() as u16 }
+    }
+
+    #[test]
+    fn board_drawings_fit_their_thumbnails() {
+        let board = Board::default();
+        assert_eq!(size_of(&board.to_string()), BIG);
+        assert_eq!(size_of(&board.to_mini_string()), SMALL);
+    }
+}

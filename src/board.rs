@@ -13,8 +13,13 @@ use Status::*;
 
 use std::fmt;
 
+/// The drawn frame follows the original puzzle: its top-right corner is cut out,
+/// so the first rows are one column narrower than the others.
+const NOTCH_ROWS: usize = 2;
+const NOTCH_COLUMNS: usize = 1;
+
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, Debug)]
-pub struct Board([Status; 45]);
+pub struct Board([Status; GRID_SIZE]);
 
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Debug)]
 enum Status {
@@ -25,9 +30,12 @@ enum Status {
 
 impl Default for Board {
     fn default() -> Self {
-        let mut status = [Empty; 45];
-        status[6] = Nonexistent;
-        status[13] = Nonexistent;
+        let mut status = [Empty; GRID_SIZE];
+        for (index, cell) in status.iter_mut().enumerate() {
+            if Square::try_from(index as u8).is_err() {
+                *cell = Nonexistent;
+            }
+        }
         Board(status)
     }
 }
@@ -55,7 +63,7 @@ impl Board {
 
     pub fn solved_for(&self) -> Option<Date> {
         let mut status = self.0.iter();
-        
+
         let month = status.position(|&sq| sq == Empty)? as u8;
         let day = 1 + month + status.position(|&sq| sq == Empty)? as u8;
 
@@ -92,18 +100,21 @@ impl Board {
         }
 
         None
-    } 
+    }
+
+    /// Whether the nonexistent cells are exactly the holes of the frame.
+    fn has_frame_holes(&self) -> bool {
+        self.0.iter().enumerate().all(|(index, &status)| {
+            (status == Nonexistent) == Square::try_from(index as u8).is_err()
+        })
+    }
 
     pub fn placements(&self) -> Result<Vec<Placement>, PlacementError> {
-        if self.0[6] != Nonexistent || self.0[13] != Nonexistent {
+        if !self.has_frame_holes() {
             return Err(PlacementError);
         }
 
-        if self.0.iter().filter(|&&status| status == Nonexistent).count() > 2 {
-            return Err(PlacementError);
-        }
-
-        let mut placed = [false; 8];
+        let mut placed = [false; Piece::COUNT];
         for piece in Piece::pieces() {
             let num_squares = self.0.iter().filter(|&&status| status == Occupied(piece)).count();
             match num_squares {
@@ -113,7 +124,7 @@ impl Board {
             }
         }
 
-        let mut placements = [None; 8];
+        let mut placements = [None; Piece::COUNT];
         for square in Square::squares() {
             if let Occupied(piece) = self.0[square as usize] {
                 if let (None, Some((rotation, mirror))) = (placements[piece as usize], self.check_placement(piece, square)) {
@@ -135,120 +146,175 @@ impl Board {
         Ok(result)
     }
 
-    fn get_statuses_by_corner(&self, row: usize, col: usize) -> (Status, Status, Status, Status) {
-        let (mut a, mut b, mut c, mut d) = (Nonexistent, Nonexistent, Nonexistent, Nonexistent);
-
-        let square = col + 7*row;
-        if row <= 7 && col <= 7 {
-            if row > 0 && col > 0 && square < 53 { a = self.0[square - 8]; }
-            if row > 0 && col < 7 && square < 52 { b = self.0[square - 7]; }
-            if row < 7 && col > 0 && square < 46 { c = self.0[square - 1]; }
-            if row < 7 && col < 7 && square < 45 { d = self.0[square];     }
+    /// Status of the cell at (row, col), cells outside the grid being nonexistent.
+    fn status_at(&self, row: Option<usize>, col: Option<usize>) -> Status {
+        match (row, col) {
+            (Some(row), Some(col)) if row < GRID_HEIGHT && col < GRID_WIDTH => self.0[col + GRID_WIDTH * row],
+            _ => Nonexistent,
         }
+    }
 
-        (a, b, c, d)
+    /// Statuses of the four cells around the corner at the top left of cell (row, col),
+    /// in the order: above left, above right, below left, below right.
+    fn get_statuses_by_corner(&self, row: usize, col: usize) -> (Status, Status, Status, Status) {
+        let (above, left) = (row.checked_sub(1), col.checked_sub(1));
+        (
+            self.status_at(above, left),
+            self.status_at(above, Some(col)),
+            self.status_at(Some(row), left),
+            self.status_at(Some(row), Some(col)),
+        )
+    }
+
+    /// Box-drawing character joining the borders that meet at a corner.
+    /// A border separates two neighbouring cells with different statuses.
+    fn corner_symbol(&self, row: usize, col: usize) -> char {
+        let (above_left, above_right, below_left, below_right) = self.get_statuses_by_corner(row, col);
+        let up = above_left != above_right;
+        let down = below_left != below_right;
+        let left = above_left != below_left;
+        let right = above_right != below_right;
+
+        match (up, down, left, right) {
+            (false, false, false, false) => ' ',
+            (true,  true,  false, false) => '│',
+            (false, false, true,  true ) => '─',
+            (false, true,  false, true ) => '┌',
+            (false, true,  true,  false) => '┐',
+            (true,  false, false, true ) => '└',
+            (true,  false, true,  false) => '┘',
+            (true,  true,  false, true ) => '├',
+            (true,  true,  true,  false) => '┤',
+            (false, true,  true,  true ) => '┬',
+            (true,  false, true,  true ) => '┴',
+            (true,  true,  true,  true ) => '┼',
+            _ => unreachable!("a single border cannot end at a corner"),
+        }
+    }
+
+    /// Whether a border runs along the top of cell (row, col).
+    fn has_top_border(&self, row: usize, col: usize) -> bool {
+        let (_, above_right, _, below_right) = self.get_statuses_by_corner(row, col);
+        above_right != below_right
+    }
+
+    /// Whether a border runs along the left of cell (row, col).
+    fn has_left_border(&self, row: usize, col: usize) -> bool {
+        let (_, _, below_left, below_right) = self.get_statuses_by_corner(row, col);
+        below_left != below_right
+    }
+}
+
+impl Board {
+    /// Number of grid columns inside the frame on a given row.
+    fn frame_columns(row: usize) -> usize {
+        if row < NOTCH_ROWS {
+            GRID_WIDTH - NOTCH_COLUMNS
+        } else {
+            GRID_WIDTH
+        }
+    }
+
+    /// Width between the two vertical lines of the frame when it encloses this many columns.
+    fn frame_inner_width(columns: usize) -> usize {
+        4 * columns + 3
+    }
+
+    fn write_border_line(&self, f: &mut fmt::Formatter<'_>, row: usize, columns: usize) -> fmt::Result {
+        for col in 0..=columns {
+            write!(f, "{}", self.corner_symbol(row, col))?;
+            if col == columns {
+                write!(f, " ")?;
+            } else if self.has_top_border(row, col) {
+                write!(f, "───")?;
+            } else {
+                write!(f, "   ")?;
+            }
+        }
+        Ok(())
+    }
+
+    fn write_cell_line(&self, f: &mut fmt::Formatter<'_>, row: usize, columns: usize) -> fmt::Result {
+        for col in 0..=columns {
+            write!(f, "{}", if self.has_left_border(row, col) { '│' } else { ' ' })?;
+            if col == columns {
+                write!(f, " ")?;
+            } else {
+                let index = col + GRID_WIDTH * row;
+                match (self.0[index], Square::try_from(index as u8)) {
+                    (Empty, Ok(square)) => write!(f, "{:^3}", square)?,
+                    _ => write!(f, "   ")?,
+                }
+            }
+        }
+        Ok(())
     }
 }
 
 impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "╭───────────────────────────╮")?;
+        let notch_width = Self::frame_inner_width(GRID_WIDTH - NOTCH_COLUMNS);
+        let full_width = Self::frame_inner_width(GRID_WIDTH);
 
-        for row in 0..=7 {
+        writeln!(f, "╭{}╮", "─".repeat(notch_width))?;
+
+        for row in 0..=GRID_HEIGHT {
+            let columns = Self::frame_columns(row);
+
             write!(f, "│ ")?;
-            for col in 0..=7 {
-                write!(f, "{}", match self.get_statuses_by_corner(row, col) {
-                    (Nonexistent, Nonexistent, Nonexistent, Nonexistent) => if row == 7 { "    " } else { "" },
+            self.write_border_line(f, row, columns)?;
+            writeln!(f, "│")?;
 
-                    (Nonexistent, Nonexistent, _, Nonexistent) => "┐ ",
-                    (_, Nonexistent, Nonexistent, Nonexistent) => "┘ ",
-
-                    (a, Nonexistent, b, Nonexistent) if a == b => "│ ",
-                    (_, Nonexistent, _, Nonexistent) => "┤ ",
-
-                    (a, b, c, d) if a == b && a == c && a == d => "    ",
-                    (a, b, c, d) if a == b && c == d => "────",
-                    (a, b, c, d) if a == c && b == d => "│   ",
-                    
-                    (a, b, c, _) if a == b && a == c => "┌───",
-                    (a, b, _, d) if a == b && a == d => "┐   ",
-                    (a, _, c, d) if a == c && a == d => "└───",
-                    (_, b, c, d) if b == c && b == d => "┘   ",
-                    
-                    (a, b, _, _) if a == b => "┬───",
-                    (a, _, c, _) if a == c => "├───",
-                    (_, b, _, d) if b == d => "┤   ",
-                    (_, _, c, d) if c == d => "┴───",
-                    
-                    _ => "┼───",
-                })?;
-            }
-            writeln!(f, "│")?; 
-
-            if row < 7 {
+            if row < GRID_HEIGHT {
                 write!(f, "│ ")?;
-                for col in 0..=7 {
-                    match self.get_statuses_by_corner(row, col) {
-                        _ if row < 2 && col == 6 => (),
-                        _ if row == 6 && col == 7 => write!(f, "  ")?,
-                        _ if col == 7 => write!(f, "│ ")?,
-                        (_, _, a, b) => {
-                            if a == b { write!(f, " ")?; }
-                            else { write!(f, "│")?; }
-                            if b == Empty {
-                                if let Ok(square) = Square::try_from((col + 7*row) as u8) {
-                                    write!(f, "{:^3}", square)?;
-                                }
-                                else { write!(f, "   ")?; }
-                            }
-                            else { write!(f, "   ")?; }
-                        }
-                    };
+                self.write_cell_line(f, row, columns)?;
+                if row + 1 == NOTCH_ROWS {
+                    writeln!(f, "╰{}╮", "─".repeat(full_width - notch_width - 1))?;
+                } else {
+                    writeln!(f, "│")?;
                 }
-                if row == 1 { writeln!(f, "╰───╮")?; }
-                else { writeln!(f, "│")?; }
             }
         }
 
-        write!(f, "╰───────────────────────────────╯")?;
-
-        Ok(())
+        write!(f, "╰{}╯", "─".repeat(full_width))
     }
 }
 
 impl Board {
     pub fn to_mini_string(&self) -> String {
-        let mut result = String::new();
+        let mut lines = Vec::new();
 
-        for row in 0..=7 {
-            for col in 0..=7 {
-                result.push_str(match self.get_statuses_by_corner(row, col) {
-                    (Nonexistent, Nonexistent, Nonexistent, Nonexistent) => if row == 7 { "  " } else { "" },
-
-                    (Nonexistent, Nonexistent, _, Nonexistent) => "┐\n",
-                    (_, Nonexistent, Nonexistent, Nonexistent) => "┘\n",
-
-                    (a, Nonexistent, b, Nonexistent) if a == b => "│\n",
-                    (_, Nonexistent, _, Nonexistent) => "┤\n",
-
-                    (a, b, c, d) if a == b && a == c && a == d => "  ",
-                    (a, b, c, d) if a == b && c == d => "──",
-                    (a, b, c, d) if a == c && b == d => "│ ",
-                    
-                    (a, b, c, _) if a == b && a == c => "┌─",
-                    (a, b, _, d) if a == b && a == d => "┐ ",
-                    (a, _, c, d) if a == c && a == d => "└─",
-                    (_, b, c, d) if b == c && b == d => "┘ ",
-                    
-                    (a, b, _, _) if a == b => "┬─",
-                    (a, _, c, _) if a == c => "├─",
-                    (_, b, _, d) if b == d => "┤ ",
-                    (_, _, c, d) if c == d => "┴─",
-                    
-                    _ => "┼─",
-                });
+        for row in 0..=GRID_HEIGHT {
+            let mut line = String::new();
+            for col in 0..=GRID_WIDTH {
+                line.push(self.corner_symbol(row, col));
+                if col < GRID_WIDTH {
+                    line.push(if self.has_top_border(row, col) { '─' } else { ' ' });
+                }
             }
+            lines.push(line);
         }
-        result
+
+        lines.join("\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_board_has_the_frame_holes() {
+        let board = Board::default();
+        assert!(board.has_frame_holes());
+        assert_eq!(board.0.iter().filter(|&&status| status == Empty).count(), 43);
+    }
+
+    #[test]
+    fn pieces_cannot_be_placed_over_holes() {
+        let board = Board::default();
+        assert!(board.place(Piece::O, Square::D22, &Path::from(Piece::O)).is_none());
+        assert!(board.place(Piece::O, Square::D23, &Path::from(Piece::O)).is_none());
+        assert!(board.place(Piece::O, Square::D24, &Path::from(Piece::O)).is_some());
     }
 }

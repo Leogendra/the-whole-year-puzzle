@@ -41,27 +41,13 @@ fn parse_today(offset: &str) -> Result<Date, String> {
     };
 
     let date = Local::now().date_naive() + Duration::days(days);
-    let mut month = date.month0() as u8;
-    if month >= 6 { month += 1; }
-    let day = date.day0() as u8 + 14;
 
     Ok(Date {
-        month: Square::try_from(month)
-            .map_err(|_| "problem determining month from system time")?,
-        day: Square::try_from(day)
-            .map_err(|_| "problem determining day from system time")?,
+        month: Square::month(date.month() as usize)
+            .ok_or("problem determining month from system time")?,
+        day: Square::day(date.day() as usize)
+            .ok_or("problem determining day from system time")?,
     })
-}
-
-fn month_to_square(month: Month) -> Square {
-    match month {
-        Month::January   => Square::Jan, Month::February  => Square::Feb,
-        Month::March     => Square::Mar, Month::April     => Square::Apr,
-        Month::May       => Square::May, Month::June      => Square::Jun,
-        Month::July      => Square::Jul, Month::August    => Square::Aug,
-        Month::September => Square::Sep, Month::October   => Square::Oct,
-        Month::November  => Square::Nov, Month::December  => Square::Dec,
-    }
 }
 
 fn parse_date(value: &str) -> Result<Date, String> {
@@ -78,8 +64,8 @@ fn parse_date(value: &str) -> Result<Date, String> {
     }
 
     let date = Date {
-        month: month_to_square(month),
-        day: Square::try_from((day + 13) as u8).expect("day check should limit to range 1-31"),
+        month: Square::month(month.number_from_month() as usize).expect("chrono months should be in range 1-12"),
+        day: Square::day(day).expect("day check should limit to range 1-31"),
     };
 
     if date.is_valid() {
@@ -95,5 +81,24 @@ pub fn parse_date_or_today(value: &str) -> Result<Date, String> {
         Some(offset) => parse_today(offset),
         _ if value.starts_with(|c| c == '+' || c == '-') => parse_today(normalized.as_str()),
         _ => parse_date(normalized.as_str()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn days_after_the_28th_are_parsed() {
+        assert_eq!(parse_date_or_today("jan 29"), Ok(Date { month: Square::Jan, day: Square::D29 }));
+        assert_eq!(parse_date_or_today("July 31"), Ok(Date { month: Square::Jul, day: Square::D31 }));
+        assert_eq!(parse_date_or_today("dec 1"), Ok(Date { month: Square::Dec, day: Square::D01 }));
+    }
+
+    #[test]
+    fn invalid_dates_are_rejected() {
+        assert!(parse_date_or_today("feb 30").is_err());
+        assert!(parse_date_or_today("apr 31").is_err());
+        assert!(parse_date_or_today("jan 32").is_err());
     }
 }

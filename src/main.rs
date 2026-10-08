@@ -22,7 +22,7 @@ fn generate(file: PathBuf) -> Vec<Board> {
     let progress = MultiProgress::new();
     
     use Piece::*;
-    let pieces = vec![O, Z, V, U, Y, N, P, L];
+    let pieces = vec![X, Z, U, P, L, T, S, J, O];
     let boards =
         solutions::generate(Board::default(), pieces, Some(&progress))
             .unwrap_or_else(|_| error("error encountered while generating solutions"));

@@ -4,6 +4,13 @@ use Square::*;
 
 use std::fmt;
 
+/// The frame is laid out on a 7x7 grid, indexed from left to right and top to bottom.
+pub const GRID_WIDTH: usize = 7;
+pub const GRID_HEIGHT: usize = 7;
+pub const GRID_SIZE: usize = GRID_WIDTH * GRID_HEIGHT;
+
+/// Each square's discriminant is its index in the grid.
+/// Indices without a square (6, 13, 42, 43, 47 and 48) are holes in the frame.
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
 #[repr(u8)]
 pub enum Square {
@@ -13,35 +20,73 @@ pub enum Square {
     D08 = 21, D09, D10, D11, D12, D13, D14,
     D15 = 28, D16, D17, D18, D19, D20, D21,
     D22 = 35, D23, D24, D25, D26, D27, D28,
-    D29 = 42, D30, D31,
+    D29 = 44, D30, D31,
 }
 
+/// Lookup table from grid index to square, built from the enum so that holes are defined in one place.
+const SQUARES_BY_INDEX: [Option<Square>; GRID_SIZE] = {
+    let mut table = [None; GRID_SIZE];
+    let mut i = 0;
+    while i < Square::MONTHS.len() {
+        table[Square::MONTHS[i] as usize] = Some(Square::MONTHS[i]);
+        i += 1;
+    }
+    let mut i = 0;
+    while i < Square::DAYS.len() {
+        table[Square::DAYS[i] as usize] = Some(Square::DAYS[i]);
+        i += 1;
+    }
+    table
+};
+
 impl Square {
+    pub const MONTHS: [Square; 12] = [
+        Jan, Feb, Mar, Apr, May, Jun,
+        Jul, Aug, Sep, Oct, Nov, Dec,
+    ];
+
+    pub const DAYS: [Square; 31] = [
+        D01, D02, D03, D04, D05, D06, D07,
+        D08, D09, D10, D11, D12, D13, D14,
+        D15, D16, D17, D18, D19, D20, D21,
+        D22, D23, D24, D25, D26, D27, D28,
+        D29, D30, D31,
+    ];
+
     pub fn step(&self, dir: Direction) -> Option<Self> {
-        let square = *self as u8;
-        match (dir, square % 7, square / 7) {
-            (Up,    _, 0) => None,
-            (Left,  0, _) => None,
-            (Right, 6, _) => None,
-            _ => Square::try_from(match dir {
-                Up    => square - 7,
-                Down  => square + 7,
-                Left  => square - 1,
-                Right => square + 1,
-            }).ok()
-        }
+        let square = *self as usize;
+        let (col, row) = (square % GRID_WIDTH, square / GRID_WIDTH);
+        let target = match dir {
+            Up    if row > 0               => square - GRID_WIDTH,
+            Down  if row + 1 < GRID_HEIGHT => square + GRID_WIDTH,
+            Left  if col > 0               => square - 1,
+            Right if col + 1 < GRID_WIDTH  => square + 1,
+            _ => return None,
+        };
+        SQUARES_BY_INDEX[target]
     }
 
     pub fn squares() -> Vec<Square> {
-        vec![
-            Jan, Feb, Mar, Apr, May, Jun,
-            Jul, Aug, Sep, Oct, Nov, Dec,
-            D01, D02, D03, D04, D05, D06, D07,
-            D08, D09, D10, D11, D12, D13, D14,
-            D15, D16, D17, D18, D19, D20, D21,
-            D22, D23, D24, D25, D26, D27, D28,
-            D29, D30, D31,
-        ]
+        [Self::MONTHS.as_slice(), Self::DAYS.as_slice()].concat()
+    }
+
+    /// The square of a month, numbered from 1 (January) to 12 (December).
+    pub fn month(number: usize) -> Option<Square> {
+        Self::MONTHS.get(number.checked_sub(1)?).copied()
+    }
+
+    /// The square of a day of the month, numbered from 1 to 31.
+    pub fn day(number: usize) -> Option<Square> {
+        Self::DAYS.get(number.checked_sub(1)?).copied()
+    }
+
+    /// The month number (1-12) or day number (1-31) written on the square.
+    pub fn number(&self) -> usize {
+        let position = match Self::MONTHS.iter().position(|square| square == self) {
+            Some(position) => position,
+            None => Self::DAYS.iter().position(|square| square == self).expect("every square should be a month or a day"),
+        };
+        position + 1
     }
 }
 
@@ -50,22 +95,9 @@ pub struct IndexError;
 
 impl TryFrom<u8> for Square {
     type Error = IndexError;
-    
+
     fn try_from(index: u8) -> Result<Self, Self::Error> {
-        if index == 6 || index == 13 || index > 44 {
-            Err(IndexError)
-        } else {
-            Ok(match index {
-                 0 => Jan,  1 => Feb,  2 => Mar,  3 => Apr,  4 => May,  5 => Jun,
-                 7 => Jul,  8 => Aug,  9 => Sep, 10 => Oct, 11 => Nov, 12 => Dec,
-                14 => D01, 15 => D02, 16 => D03, 17 => D04, 18 => D05, 19 => D06, 20 => D07,
-                21 => D08, 22 => D09, 23 => D10, 24 => D11, 25 => D12, 26 => D13, 27 => D14,
-                28 => D15, 29 => D16, 30 => D17, 31 => D18, 32 => D19, 33 => D20, 34 => D21,
-                35 => D22, 36 => D23, 37 => D24, 38 => D25, 39 => D26, 40 => D27, 41 => D28,
-                42 => D29, 43 => D30, 44 => D31,
-                _ => unreachable!(),
-            })
-        }
+        SQUARES_BY_INDEX.get(index as usize).copied().flatten().ok_or(IndexError)
     }
 }
 
@@ -92,7 +124,7 @@ pub struct Date {
 impl Date {
     pub fn is_valid(&self) -> bool {
         match (self.month, self.day) {
-            _ if self.month > Dec || self.day < D01 => false,
+            _ if !Square::MONTHS.contains(&self.month) || !Square::DAYS.contains(&self.day) => false,
             (Apr | Jun | Sep | Nov, D31) => false,
             (Feb, D30 | D31) => false,
             _ => true
@@ -104,17 +136,14 @@ impl Date {
             return Date { month: Jan, day: D01 };
         }
 
-        if let Ok(next_day) = Square::try_from(self.day as u8 + 1) {
+        if let Some(next_day) = Square::day(self.day.number() + 1) {
             let next_date = Date { month: self.month, day: next_day };
             if next_date.is_valid() {
                 return next_date;
             }
         }
 
-        let next_month = match self.month {
-            Jun => Jul, Dec => Jan,
-            _ => Square::try_from(self.month as u8 + 1).unwrap(),
-        };
+        let next_month = Square::month(self.month.number() % 12 + 1).expect("month number should be in range 1-12");
 
         Date { month: next_month, day: D01 }
     }
@@ -125,10 +154,7 @@ impl Date {
         }
 
         if self.day == D01 {
-            let prev_month = match self.month {
-                Jan => Dec, Jul => Jun,
-                _ => Square::try_from(self.month as u8 - 1).unwrap(),
-            };
+            let prev_month = Square::month((self.month.number() + 10) % 12 + 1).expect("month number should be in range 1-12");
             let prev_day = match self.month {
                 Mar => D29,
                 May | Jul | Oct | Dec => D30,
@@ -137,7 +163,7 @@ impl Date {
             return Date { month: prev_month, day: prev_day };
         }
 
-        Date { month: self.month, day: Square::try_from(self.day as u8 - 1).unwrap() }
+        Date { month: self.month, day: Square::day(self.day.number() - 1).expect("day number should be in range 2-31") }
     }
 }
 
@@ -148,3 +174,75 @@ impl fmt::Display for Date {
 }
 
 pub type DateMap<T> = std::collections::HashMap<Date, T>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn holes_are_not_squares() {
+        for hole in [6, 13, 42, 43, 47, 48, 49] {
+            assert!(Square::try_from(hole).is_err(), "index {hole} should be a hole");
+        }
+    }
+
+    #[test]
+    fn every_square_round_trips_through_its_index() {
+        for square in Square::squares() {
+            assert_eq!(Square::try_from(square as u8).ok(), Some(square));
+        }
+        assert_eq!(Square::squares().len(), 43);
+    }
+
+    #[test]
+    fn steps_into_holes_or_off_the_grid_are_rejected() {
+        assert_eq!(D22.step(Down), None);
+        assert_eq!(D28.step(Down), None);
+        assert_eq!(D31.step(Right), None);
+        assert_eq!(D29.step(Left), None);
+        assert_eq!(Jun.step(Right), None);
+        assert_eq!(D07.step(Right), None);
+        assert_eq!(D24.step(Down), Some(D29));
+        assert_eq!(D29.step(Up), Some(D24));
+    }
+
+    #[test]
+    fn numbers_match_month_and_day() {
+        assert_eq!(Square::month(7), Some(Jul));
+        assert_eq!(Square::day(29), Some(D29));
+        assert_eq!(Square::day(0), None);
+        assert_eq!(Square::day(32), None);
+        assert_eq!(D29.number(), 29);
+        assert_eq!(Dec.number(), 12);
+    }
+
+    #[test]
+    fn next_crosses_the_holes_between_days() {
+        assert_eq!(Date { month: Jan, day: D28 }.next(), Date { month: Jan, day: D29 });
+        assert_eq!(Date { month: Jan, day: D31 }.next(), Date { month: Feb, day: D01 });
+        assert_eq!(Date { month: Feb, day: D29 }.next(), Date { month: Mar, day: D01 });
+        assert_eq!(Date { month: Jun, day: D30 }.next(), Date { month: Jul, day: D01 });
+        assert_eq!(Date { month: Dec, day: D31 }.next(), Date { month: Jan, day: D01 });
+    }
+
+    #[test]
+    fn prev_crosses_the_holes_between_days() {
+        assert_eq!(Date { month: Jan, day: D29 }.prev(), Date { month: Jan, day: D28 });
+        assert_eq!(Date { month: Mar, day: D01 }.prev(), Date { month: Feb, day: D29 });
+        assert_eq!(Date { month: Jul, day: D01 }.prev(), Date { month: Jun, day: D30 });
+        assert_eq!(Date { month: Jan, day: D01 }.prev(), Date { month: Dec, day: D31 });
+    }
+
+    #[test]
+    fn next_visits_all_366_dates() {
+        let start = Date { month: Jan, day: D01 };
+        let mut date = start.next();
+        let mut count = 1;
+        while date != start {
+            assert_eq!(date.next().prev(), date);
+            date = date.next();
+            count += 1;
+        }
+        assert_eq!(count, 366);
+    }
+}

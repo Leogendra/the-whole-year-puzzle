@@ -1,5 +1,5 @@
 use crate::board::{Board, Piece, Path, Square, DateMap, Rotation, PlacementError};
-use crate::board::compact::CompactBoard;
+use crate::board::compact::{CompactBoard, BOARD_BYTE_COUNT};
 
 use std::thread;
 use std::sync::mpsc::{self, Sender, Receiver, SendError};
@@ -139,10 +139,14 @@ pub fn write_boards(boards: Vec<Board>, file: PathBuf) -> Result<(), DataError> 
 }
 
 pub fn read_boards(bytes: &[u8]) -> Result<Vec<Board>, DataError> {
+    if bytes.len() % BOARD_BYTE_COUNT != 0 {
+        return Err(DataError::BoardError);
+    }
+
     let mut boards = Vec::new();
 
-    for chunk in bytes.chunks_exact(9) {
-        let chunk: [u8; 9] = chunk.try_into().expect("chunk size should be exactly 9");
+    for chunk in bytes.chunks_exact(BOARD_BYTE_COUNT) {
+        let chunk: [u8; BOARD_BYTE_COUNT] = chunk.try_into().expect("chunks should have the size of one board");
         let compact = CompactBoard::from(chunk);
         boards.push(Board::try_from(compact)?);
     }
@@ -158,4 +162,52 @@ pub fn classify(boards: Vec<Board>) -> DateMap<Vec<Board>> {
         }
     }
     solutions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::board::Date;
+
+    use std::collections::BTreeSet;
+
+    fn embedded_boards() -> Vec<Board> {
+        read_boards(SOLUTIONS).unwrap_or_else(|_| panic!("embedded solutions should decode"))
+    }
+
+    #[test]
+    fn embedded_solutions_cover_every_date() {
+        let solutions = classify(embedded_boards());
+        let start = Date { month: Square::Jan, day: Square::D01 };
+        let mut date = start;
+        loop {
+            assert!(solutions.get(&date).is_some_and(|boards| !boards.is_empty()), "no solution for {date}");
+            date = date.next();
+            if date == start { break; }
+        }
+    }
+
+    #[test]
+    fn embedded_solutions_are_valid_and_distinct() {
+        let boards = embedded_boards();
+        assert!(boards.iter().all(|board| board.solved_for().is_some()));
+        let distinct: BTreeSet<&Board> = boards.iter().collect();
+        assert_eq!(distinct.len(), boards.len());
+    }
+
+    #[test]
+    fn embedded_solutions_encode_back_to_the_same_bytes() {
+        let mut bytes = Vec::new();
+        for board in embedded_boards() {
+            let compact = CompactBoard::try_from(board).unwrap_or_else(|_| panic!("solution should encode"));
+            bytes.extend_from_slice(&compact.to_bytes());
+        }
+        assert_eq!(bytes, SOLUTIONS);
+    }
+
+    #[test]
+    fn truncated_data_is_rejected() {
+        assert!(read_boards(&SOLUTIONS[..BOARD_BYTE_COUNT + 1]).is_err());
+    }
 }
