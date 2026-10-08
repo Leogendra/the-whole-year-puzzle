@@ -67,4 +67,22 @@ one should prefer setting all bits corresponding to the piece to 1.
 The following image shows the decoding of the first board specified in the `solutions.apad` file
 found in this repository:
 
-![](example.png)
+```
+╭───────────────────────────╮
+│ ┌───┬───────────┬───────┐ │
+│ │Jan│           │       │ │
+│ ├───┴───┬───┐   │   ┌───┤ │
+│ │       │   │   │   │   │ ╰───╮
+│ │       │   └───┤   │   └───┐ │
+│ │       │       │   │       │ │
+│ ├───────┤   ┌───┤   ├───┐   │ │
+│ │       │   │   │   │   │   │ │
+│ │       ├───┤   └───┘   ├───┤ │
+│ │       │   │           │   │ │
+│ │   ┌───┘   └───┬───────┘   │ │
+│ │   │           │           │ │
+│ └───┴───┐   ┌───┤   ┌───────┘ │
+│         │   │30 │   │         │
+│         └───┴───┴───┘         │
+╰───────────────────────────────╯
+```

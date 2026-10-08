@@ -1,12 +1,9 @@
 # A-Puzzle-A-Day
 
-[DragonFjord's A-Puzzle-A-Day](https://www.dragonfjord.com/product/a-puzzle-a-day/)
-tasks you with placing eight pieces within a calendar frame
-to reveal the current date. There are roughly 60 thousand ways
-the pieces can fit in the frame, and of those arrangements
-over 24 thousand are valid solutions.
-That is an average of 67 solutions per date, and yet some days
-solving the puzzle can seem utterly and hopelessly impossible.
+This version targets a variant of
+[DragonFjord's A-Puzzle-A-Day](https://www.dragonfjord.com/product/a-puzzle-a-day/) : The Whole Year Puzzle, which tasks you with placing nine pieces (five pentominoes and four tetrominoes) within a calendar frame to reveal the current date. 
+There are roughly 98 thousand ways the pieces can fit in the frame, and of those arrangements over 40 thousand are valid solutions.
+That is an average of 110 solutions per date, and yet some days solving the puzzle can seem utterly and hopelessly impossible.
 
 This piece of software can serve as a holy light for those
 despondent, ego-shattering days, allowing you to generate
@@ -55,7 +52,7 @@ The file created uses a custom-built binary file format, named [APAD](docs/APAD.
 
 Solutions are found using brute-force, each piece placed on each square in parallel.
 Care has been made in minimizing the amount of work needed, but the generation will
-take at least a few seconds and a few dozen threads.
+take a few minutes, a few dozen threads and around 2 GB of memory.
 
 **Note**: this is generally unnecessary, as the solutions are included
 in the binary.
@@ -75,8 +72,10 @@ This will place the executable `a-puzzle-a-day` into `$HOME/.cargo/bin`
 Alternatively, to build from source:
 
 ```
-git clone https://github.com/mrbjarksen/a-puzzle-a-day
-cd a-puzzle-a-day
 cargo build --release
-cp target/release/a-puzzle-a-day <DESIRED LOCATION>
+cargo run --release
+```
+Or with a specific date:
+```
+cargo run --release -- -d "Oct 8"
 ```
